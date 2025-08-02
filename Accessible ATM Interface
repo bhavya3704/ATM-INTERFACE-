@@ -1,0 +1,175 @@
+import tkinter as tk
+from tkinter import messagebox, simpledialog
+import json
+import datetime
+import pyttsx3
+
+# -------------------- TTS Setup --------------------
+tts = pyttsx3.init()
+tts.setProperty('rate', 125)
+VOICE_NAME = 'zira'
+for voice in tts.getProperty('voices'):
+    if VOICE_NAME.lower() in voice.name.lower():
+        tts.setProperty('voice', voice.id)
+        break
+
+def speak(text):
+    tts.say(text)
+    tts.runAndWait()
+
+# -------------------- Data Handling --------------------
+DATA_FILE = r"C:\Users\surya bhavya\Downloads\atm_data_large.json"
+WITHDRAW_LIMIT = 10000
+MAX_DAILY_WITHDRAWS = 3
+
+def load_data():
+    try:
+        with open(DATA_FILE, 'r') as f:
+            return json.load(f)
+    except:
+        return []
+
+def save_data(data):
+    with open(DATA_FILE, 'w') as f:
+        json.dump(data, f, indent=2)
+
+def today():
+    return datetime.date.today().isoformat()
+
+users = load_data()
+current_user = None
+
+# -------------------- ATM Functions --------------------
+def login():
+    global current_user
+    acc = entry_account.get()
+    pin = entry_pin.get()
+    for u in users:
+        if str(u["accountNumber"]) == acc and u["pin"] == pin:
+            current_user = u
+            reset_limits(current_user)
+            show_dashboard()
+            speak("Login successful")
+            return
+    speak("Login failed")
+    messagebox.showerror("Error", "Invalid credentials")
+
+def reset_limits(u):
+    if u["lastLoginDate"] != today():
+        u["dailyWithdraws"] = 0
+        u["dailyWithdrawAmount"] = 0.0
+        u["lastLoginDate"] = today()
+
+def show_balance():
+    msg = f"Your current balance is ₹{current_user['balance']:.2f}"
+    speak(msg)
+    messagebox.showinfo("Balance", msg)
+
+def deposit():
+    amt = simpledialog.askfloat("Deposit", "Enter amount to deposit:")
+    if amt and amt > 0:
+        current_user['balance'] += amt
+        current_user['transactions'].append(f"Deposited ₹{amt:.2f}")
+        save_data(users)
+        speak("Deposit successful")
+        messagebox.showinfo("Success", "Deposit successful.")
+    else:
+        speak("Invalid amount")
+        messagebox.showerror("Error", "Invalid deposit amount.")
+
+def withdraw():
+    if current_user['dailyWithdraws'] >= MAX_DAILY_WITHDRAWS:
+        speak("Daily withdrawal limit reached")
+        messagebox.showerror("Limit Reached", "You have reached the daily withdrawal limit.")
+        return
+    amt = simpledialog.askfloat("Withdraw", "Enter amount to withdraw:")
+    if not amt or amt <= 0 or amt > current_user['balance'] or (current_user['dailyWithdrawAmount'] + amt > WITHDRAW_LIMIT):
+        speak("Withdrawal denied")
+        messagebox.showerror("Error", "Invalid or over limit amount.")
+        return
+    current_user['balance'] -= amt
+    current_user['dailyWithdrawAmount'] += amt
+    current_user['dailyWithdraws'] += 1
+    current_user['transactions'].append(f"Withdrew ₹{amt:.2f}")
+    save_data(users)
+    speak("Withdrawal successful")
+    messagebox.showinfo("Success", "Withdrawal successful.")
+
+def txn_history():
+    history = "\n".join(current_user['transactions'][-10:])
+    speak("Here is your transaction history")
+    messagebox.showinfo("Transaction History", history)
+
+def change_pin():
+    old_pin = simpledialog.askstring("Change PIN", "Enter current PIN:", show='*')
+    if old_pin == current_user['pin']:
+        new_pin = simpledialog.askstring("Change PIN", "Enter new 4-digit PIN:", show='*')
+        confirm = simpledialog.askstring("Change PIN", "Confirm new PIN:", show='*')
+        if new_pin == confirm:
+            current_user['pin'] = new_pin
+            save_data(users)
+            speak("PIN changed successfully")
+            messagebox.showinfo("Success", "PIN changed successfully.")
+        else:
+            speak("PIN mismatch")
+            messagebox.showerror("Error", "PINs do not match.")
+    else:
+        speak("Incorrect current PIN")
+        messagebox.showerror("Error", "Incorrect current PIN.")
+
+def logout():
+    global current_user
+    current_user = None
+    speak("You have been logged out")
+    show_login()
+
+def exit_app():
+    speak("Thank you for using Accessible ATM. Goodbye.")
+    root.destroy()
+
+# -------------------- GUI Setup --------------------
+root = tk.Tk()
+root.title("Accessible ATM")
+root.geometry("400x400")
+
+frame_login = tk.Frame(root)
+frame_dashboard = tk.Frame(root)
+
+# Login Screen
+label_welcome = tk.Label(frame_login, text="Welcome to Accessible ATM", font=("Arial", 16))
+label_acc = tk.Label(frame_login, text="Account Number")
+entry_account = tk.Entry(frame_login)
+label_pin = tk.Label(frame_login, text="PIN")
+entry_pin = tk.Entry(frame_login, show='*')
+btn_login = tk.Button(frame_login, text="Login", command=login)
+btn_exit = tk.Button(frame_login, text="Exit", command=exit_app)
+
+label_welcome.pack(pady=10)
+label_acc.pack()
+entry_account.pack()
+label_pin.pack()
+entry_pin.pack()
+btn_login.pack(pady=5)
+btn_exit.pack()
+
+# Dashboard
+btn_balance = tk.Button(frame_dashboard, text="Balance", command=show_balance)
+btn_deposit = tk.Button(frame_dashboard, text="Deposit", command=deposit)
+btn_withdraw = tk.Button(frame_dashboard, text="Withdraw", command=withdraw)
+btn_history = tk.Button(frame_dashboard, text="Transaction History", command=txn_history)
+btn_change_pin = tk.Button(frame_dashboard, text="Change PIN", command=change_pin)
+btn_logout = tk.Button(frame_dashboard, text="Logout", command=logout)
+
+for btn in [btn_balance, btn_deposit, btn_withdraw, btn_history, btn_change_pin, btn_logout]:
+    btn.pack(pady=5, fill="x", padx=50)
+
+def show_login():
+    frame_dashboard.pack_forget()
+    frame_login.pack()
+
+def show_dashboard():
+    frame_login.pack_forget()
+    frame_dashboard.pack()
+
+show_login()
+root.mainloop()
